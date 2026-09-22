@@ -15,6 +15,7 @@
 #include <functional>
 #include <fstream>
 #include <climits>
+#include <cstdlib>
 
 static const int DIMS = 16;   // demo vectors
 // Doc embeddings dimension is determined at runtime from Ollama's model output
@@ -1084,6 +1085,9 @@ int main() {
             "text/html");
     });
 
-    svr.listen("0.0.0.0", 8080);
+    const char* portEnv = std::getenv("PORT");
+    int port = (portEnv && *portEnv) ? std::atoi(portEnv) : 8080;
+    std::cout << "Listening on http://0.0.0.0:" << port << std::endl;
+    svr.listen("0.0.0.0", port);
     return 0;
 }

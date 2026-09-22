@@ -1,0 +1,7 @@
+db.exe
+*.exe
+*.o
+*.obj
+.git
+.vscode
+.idea
