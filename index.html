@@ -329,7 +329,7 @@ button {
             </select>
             <button class="btn-g" id="askBtn" onclick="askAI()" style="flex:1">🤖 ASK AI</button>
           </div>
-          <div id="aiSubNotice" style="font-size:10px;color:var(--muted)">Retrieves real context from VectorDB (HNSW) and answers via Gemini 1.5 Flash.</div>
+          <div id="aiSubNotice" style="font-size:10px;color:var(--muted)">Retrieves real context from VectorDB (HNSW) and answers via Google Gemini.</div>
         </div>
       </div>
       <div>
@@ -898,16 +898,34 @@ Instructions:
 2. If the retrieved context is relevant, explain how it connects to the question.
 3. Be friendly, accurate, and articulate.`;
 
-      // 3. Call Google Gemini API
-      const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(key)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: promptText }] }]
-        })
-      });
+      // 3. Call Google Gemini API (with automatic fallback to available models)
+      const candidateModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash-latest'];
+      let gData = null;
+      let usedModel = candidateModels[0];
 
-      const gData = await geminiRes.json();
+      for (const m of candidateModels) {
+        try {
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${encodeURIComponent(key)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: promptText }] }]
+            })
+          });
+          const json = await res.json();
+          if (json.error && json.error.message && (json.error.message.includes('not found') || json.error.message.includes('not supported'))) {
+            continue;
+          }
+          gData = json;
+          usedModel = m;
+          break;
+        } catch(e) {}
+      }
+
+      if (!gData) {
+        throw new Error("Could not find an available Gemini model. Please verify your API key permissions.");
+      }
+
       thinkDiv.remove();
 
       const aDiv=document.createElement('div'); aDiv.className='chat-a';
@@ -916,7 +934,7 @@ Instructions:
         history.appendChild(aDiv);
       } else {
         const fullAnswer = gData.candidates?.[0]?.content?.parts?.[0]?.text || "No response received from Gemini.";
-        aDiv.innerHTML=`<div class="chat-a-label">✨ gemini-1.5-flash (Google AI)</div>`+
+        aDiv.innerHTML=`<div class="chat-a-label">✨ ${usedModel} (Google AI)</div>`+
           `<div class="chat-a-text" id="typeTarget"></div>`+
           (contexts.length > 0 ? (
             `<div class="chat-ctx">`+
