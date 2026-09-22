@@ -1009,7 +1009,7 @@ int main() {
         // Step 1: embed the question
         auto qEmb = ollama.embed(question);
         if (qEmb.empty()) {
-            res.set_content("{\"error\":\"Ollama unavailable\"}", "application/json"); return;
+            res.set_content("{\"error\":\"Ollama is offline. The AI chat/RAG feature requires a running Ollama instance (install from ollama.com). You can explore the Search, Algorithms (HNSW / KD-Tree / BruteForce), and Benchmark tabs above!\"}", "application/json"); return;
         }
 
         // Step 2: retrieve top-k relevant chunks
