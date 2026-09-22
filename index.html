@@ -294,10 +294,33 @@ button {
 
     <!-- TAB: ASK AI (RAG) -->
     <div class="tab-content" id="tab-rag">
+      <div style="background:#0c0c18;border:1px solid #1a1a32;border-radius:6px;padding:10px;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="font-size:11px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px">
+            <span style="color:var(--cs)">⚡ Provider:</span>
+            <select id="aiProvider" onchange="toggleAiProvider()" style="background:#131326;color:var(--text);border:1px solid var(--border);padding:3px 6px;border-radius:4px;font-size:11px">
+              <option value="gemini" selected>Google Gemini (Free Cloud)</option>
+              <option value="ollama">Ollama (Local PC)</option>
+            </select>
+          </div>
+          <span id="geminiBadge" style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(0,217,255,0.1);color:var(--cs);border:1px solid rgba(0,217,255,0.3)">Gemini Ready</span>
+        </div>
+        <div id="geminiKeyBox" style="display:flex;flex-direction:column;gap:5px">
+          <div style="display:flex;gap:6px">
+            <input type="password" id="geminiApiKey" placeholder="Paste free Gemini API Key..." style="flex:1;font-size:11px;padding:5px 8px;background:#07070f;border:1px solid var(--border);border-radius:4px;color:var(--text)" />
+            <button onclick="saveGeminiKey()" style="font-size:11px;padding:5px 10px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer">Save</button>
+          </div>
+          <div style="font-size:10px;color:var(--muted);display:flex;justify-content:space-between">
+            <span>Free API Key: <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:var(--cs);text-decoration:none">aistudio.google.com ↗</a></span>
+            <span id="geminiKeyStatus" style="color:var(--green)"></span>
+          </div>
+        </div>
+      </div>
+
       <div>
         <div class="sec">Ask a Question</div>
         <div style="display:flex;flex-direction:column;gap:8px">
-          <textarea id="ragQuestion" rows="3" placeholder="What is dynamic programming?&#10;Explain the main idea of HNSW.&#10;How does the recipe differ from…"></textarea>
+          <textarea id="ragQuestion" rows="3" placeholder="What is dynamic programming?&#10;Explain the main idea of HNSW.&#10;How does pizza relate to food vectors?"></textarea>
           <div style="display:flex;gap:6px">
             <select id="ragK" style="width:auto;flex-shrink:0">
               <option value="2">Top 2</option>
@@ -306,7 +329,7 @@ button {
             </select>
             <button class="btn-g" id="askBtn" onclick="askAI()" style="flex:1">🤖 ASK AI</button>
           </div>
-          <div style="font-size:10px;color:var(--muted)">Uses your inserted documents as context. Answers come from the local LLM.</div>
+          <div id="aiSubNotice" style="font-size:10px;color:var(--muted)">Retrieves real context from VectorDB (HNSW) and answers via Gemini 1.5 Flash.</div>
         </div>
       </div>
       <div>
@@ -728,8 +751,55 @@ async function deleteDoc(id) {
 }
 
 // ════════════════════════════════════════════════════════════
-//  RAG  — Ask AI
+//  GEMINI & RAG  — Ask AI
 // ════════════════════════════════════════════════════════════
+let serverGeminiKey = '';
+
+function toggleAiProvider() {
+  const prov = document.getElementById('aiProvider').value;
+  const keyBox = document.getElementById('geminiKeyBox');
+  const subNotice = document.getElementById('aiSubNotice');
+  if (prov === 'gemini') {
+    keyBox.style.display = 'flex';
+    subNotice.textContent = 'Retrieves real context from VectorDB (HNSW) and answers via Gemini 1.5 Flash.';
+  } else {
+    keyBox.style.display = 'none';
+    subNotice.textContent = 'Uses your inserted documents as context. Answers come from local Ollama.';
+  }
+}
+
+function saveGeminiKey() {
+  const key = document.getElementById('geminiApiKey').value.trim();
+  if (key) {
+    localStorage.setItem('gemini_api_key', key);
+    document.getElementById('geminiKeyStatus').textContent = 'Saved!';
+    document.getElementById('geminiBadge').textContent = 'Key Active ✓';
+    document.getElementById('geminiBadge').style.borderColor = 'rgba(105,240,174,0.4)';
+    document.getElementById('geminiBadge').style.color = 'var(--green)';
+    setTimeout(() => { document.getElementById('geminiKeyStatus').textContent = ''; }, 3000);
+  }
+}
+
+function initGeminiKey() {
+  const saved = localStorage.getItem('gemini_api_key');
+  if (saved) {
+    document.getElementById('geminiApiKey').value = saved;
+    document.getElementById('geminiBadge').textContent = 'Key Active ✓';
+    document.getElementById('geminiBadge').style.borderColor = 'rgba(105,240,174,0.4)';
+    document.getElementById('geminiBadge').style.color = 'var(--green)';
+  }
+  fetch(API + '/config').then(r => r.json()).then(d => {
+    if (d.geminiKey) {
+      serverGeminiKey = d.geminiKey;
+      if (!saved) {
+        document.getElementById('geminiBadge').textContent = 'Cloud Key ✓';
+        document.getElementById('geminiBadge').style.borderColor = 'rgba(105,240,174,0.4)';
+        document.getElementById('geminiBadge').style.color = 'var(--green)';
+      }
+    }
+  }).catch(() => {});
+}
+
 document.getElementById('ragQuestion').addEventListener('keydown',e=>{
   if(e.key==='Enter'&&e.ctrlKey)askAI();
 });
@@ -742,7 +812,6 @@ async function askAI() {
   btn.disabled=true; btn.textContent='Thinking…';
 
   const history=document.getElementById('chatHistory');
-  // Clear previous conversation
   history.innerHTML='';
 
   // Show question bubble
@@ -751,32 +820,54 @@ async function askAI() {
 
   // Show thinking indicator
   const thinkDiv=document.createElement('div'); thinkDiv.className='thinking';
-  thinkDiv.innerHTML='<div class="spinner"></div>Retrieving context & generating answer…';
+  thinkDiv.innerHTML='<div class="spinner"></div>Retrieving VectorDB context & generating answer…';
   history.appendChild(thinkDiv);
   history.scrollTop=history.scrollHeight;
 
-  // Update the scatter plot visualizer in the background using the real 768D DB
-  fetch(API+'/doc/search', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({question, k})
-  })
-  .then(res=>res.json())
-  .then(data => {
-    if (data.contexts && data.contexts.length > 0) {
-      hitIds = new Set();
-      let sx=0, sy=0, sw=0;
-      data.contexts.forEach((ctx, i) => {
-        // Match the RAG chunk title back to the visualizer document metadata
-        const pt = pcaPoints.find(p => p.item.category === 'doc' && ctx.title.startsWith(p.item.metadata));
-        if (pt) {
-          hitIds.add(pt.item.id);
-          const w = 1/(i+1); sx += pt.x*w; sy += pt.y*w; sw += w;
-        }
-      });
-      if (sw > 0) queryPt = {x: sx/sw + (Math.random()-.5)*.015, y: sy/sw + (Math.random()-.5)*.015};
-    } else {
-      hitIds = new Set();
-      // Fallback: If no RAG docs match, visually move the star to the 16D semantic space anyway!
+  const provider = document.getElementById('aiProvider').value;
+
+  if (provider === 'gemini') {
+    const key = document.getElementById('geminiApiKey').value.trim() || localStorage.getItem('gemini_api_key') || serverGeminiKey;
+    if (!key) {
+      thinkDiv.remove();
+      const aDiv=document.createElement('div'); aDiv.className='chat-a';
+      aDiv.innerHTML=`<div class="chat-a-label">🔑 GEMINI API KEY REQUIRED</div>`+
+        `<div class="chat-a-text" style="color:var(--cs)">Please paste your free Google Gemini API key in the box above to chat.<br><br>`+
+        `👉 <strong>Get a free key in 30 seconds (no credit card):</strong><br>`+
+        `<a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:#69f0ae;text-decoration:underline">https://aistudio.google.com/app/apikey ↗</a></div>`;
+      history.appendChild(aDiv);
+      btn.disabled=false; btn.textContent='🤖 ASK AI';
+      return;
+    }
+
+    try {
+      // 1. Retrieve context from VectorDB (docs or demo items)
+      let contexts = [];
+      try {
+        const docRes = await fetch(API+'/doc/search', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({question, k})
+        });
+        const docData = await docRes.json();
+        if (docData.contexts && docData.contexts.length > 0) contexts = docData.contexts;
+      } catch(_) {}
+
+      if (contexts.length === 0) {
+        try {
+          const emb16 = textToEmbedding(question);
+          const searchRes = await fetch(`${API}/search?v=${emb16.join(',')}&k=${k}&metric=cosine&algo=hnsw`);
+          const searchData = await searchRes.json();
+          if (searchData.results && searchData.results.length > 0) {
+            contexts = searchData.results.map(r => ({
+              title: `[${r.category.toUpperCase()}] ${r.metadata}`,
+              text: `Vector item: "${r.metadata}" in category "${r.category}". Similarity Distance: ${r.distance.toFixed(4)}`,
+              distance: r.distance
+            }));
+          }
+        } catch(_) {}
+      }
+
+      // Visual star update
       const emb16 = textToEmbedding(question);
       fetch(`${API}/search?v=${emb16.join(',')}&k=3&metric=cosine&algo=hnsw`)
         .then(res2=>res2.json())
@@ -790,51 +881,112 @@ async function askAI() {
             if(sw>0) queryPt={x:sx/sw+(Math.random()-.5)*.015,y:sy/sw+(Math.random()-.5)*.015};
           }
         }).catch(()=>{});
+
+      // 2. Build Gemini prompt with VectorDB context
+      const ctxString = contexts.length > 0
+        ? contexts.map((c, i) => `[Context ${i+1}] ${c.title}:\n${c.text}`).join('\n\n')
+        : "No specific vector documents found. Rely on general AI knowledge.";
+
+      const promptText = `You are an AI assistant integrated with an in-memory C++ Vector Database (supporting HNSW, KD-Tree, and Brute-force search).
+Retrieved Context from Vector Database:
+${ctxString}
+
+User Question: ${question}
+
+Instructions:
+1. Answer the user's question clearly, concisely, and helpfully.
+2. If the retrieved context is relevant, explain how it connects to the question.
+3. Be friendly, accurate, and articulate.`;
+
+      // 3. Call Google Gemini API
+      const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(key)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: promptText }] }]
+        })
+      });
+
+      const gData = await geminiRes.json();
+      thinkDiv.remove();
+
+      const aDiv=document.createElement('div'); aDiv.className='chat-a';
+      if (gData.error) {
+        aDiv.innerHTML=`<div class="chat-a-label">ERROR</div><div class="chat-a-text" style="color:var(--red)">${gData.error.message || 'Gemini API Error'}</div>`;
+        history.appendChild(aDiv);
+      } else {
+        const fullAnswer = gData.candidates?.[0]?.content?.parts?.[0]?.text || "No response received from Gemini.";
+        aDiv.innerHTML=`<div class="chat-a-label">✨ gemini-1.5-flash (Google AI)</div>`+
+          `<div class="chat-a-text" id="typeTarget"></div>`+
+          (contexts.length > 0 ? (
+            `<div class="chat-ctx">`+
+              `<div class="chat-ctx-label">RETRIEVED VECTOR CONTEXT (${contexts.length} items)</div>`+
+              contexts.map((c,i)=>`<span class="ctx-chip" onclick="toggleCtx(${i})">#${i+1} ${c.title} · ${c.distance.toFixed(3)}</span>`+
+                `<div class="ctx-expand" id="ctx-${i}">${c.text}</div>`).join('')+
+            `</div>`
+          ) : '');
+        history.appendChild(aDiv);
+
+        // Typewriter effect
+        const target=aDiv.querySelector('#typeTarget');
+        target.classList.add('typing');
+        let i=0;
+        const timer=setInterval(()=>{
+          if(i>=fullAnswer.length){clearInterval(timer);target.classList.remove('typing');return;}
+          const chunk=fullAnswer.slice(i,i+3); target.textContent+=chunk; i+=3;
+          history.scrollTop=history.scrollHeight;
+        },15);
+      }
+
+    } catch(err) {
+      thinkDiv.remove();
+      const eDiv=document.createElement('div'); eDiv.className='chat-a';
+      eDiv.innerHTML=`<div class="chat-a-label">ERROR</div><div class="chat-a-text" style="color:var(--red)">${err.message || 'Failed to reach Gemini'}</div>`;
+      history.appendChild(eDiv);
     }
-  }).catch(()=>{});
 
-  try {
-    const r=await fetch(API+'/doc/ask',{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({question,k})
-    });
-    const d=await r.json();
-    thinkDiv.remove();
+  } else {
+    // Ollama flow
+    try {
+      const r=await fetch(API+'/doc/ask',{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({question,k})
+      });
+      const d=await r.json();
+      thinkDiv.remove();
 
-    const aDiv=document.createElement('div'); aDiv.className='chat-a';
+      const aDiv=document.createElement('div'); aDiv.className='chat-a';
 
-    if (d.error) {
-      aDiv.innerHTML=`<div class="chat-a-label">ERROR</div><div class="chat-a-text" style="color:var(--red)">${d.error}</div>`;
-    } else {
-      // Build answer block with typewriter
-      aDiv.innerHTML=`<div class="chat-a-label">🤖 ${d.model||'llm'}</div>`+
-        `<div class="chat-a-text" id="typeTarget"></div>`+
-        `<div class="chat-ctx">`+
-          `<div class="chat-ctx-label">RETRIEVED CONTEXT (${d.contexts.length} chunks)</div>`+
-          d.contexts.map((c,i)=>`<span class="ctx-chip" onclick="toggleCtx(${i})">#${i+1} ${c.title} · ${c.distance.toFixed(3)}</span>`+
-            `<div class="ctx-expand" id="ctx-${i}">${c.text}</div>`).join('')+
-        `</div>`;
-      history.appendChild(aDiv);
+      if (d.error) {
+        aDiv.innerHTML=`<div class="chat-a-label">ERROR</div><div class="chat-a-text" style="color:var(--red)">${d.error}</div>`;
+      } else {
+        aDiv.innerHTML=`<div class="chat-a-label">🤖 ${d.model||'llm'}</div>`+
+          `<div class="chat-a-text" id="typeTarget"></div>`+
+          `<div class="chat-ctx">`+
+            `<div class="chat-ctx-label">RETRIEVED CONTEXT (${d.contexts.length} chunks)</div>`+
+            d.contexts.map((c,i)=>`<span class="ctx-chip" onclick="toggleCtx(${i})">#${i+1} ${c.title} · ${c.distance.toFixed(3)}</span>`+
+              `<div class="ctx-expand" id="ctx-${i}">${c.text}</div>`).join('')+
+          `</div>`;
+        history.appendChild(aDiv);
 
-      // Typewriter effect
-      const target=aDiv.querySelector('#typeTarget');
-      target.classList.add('typing');
-      const full=d.answer; let i=0;
-      const timer=setInterval(()=>{
-        if(i>=full.length){clearInterval(timer);target.classList.remove('typing');return;}
-        const chunk=full.slice(i,i+3); target.textContent+=chunk; i+=3;
-        history.scrollTop=history.scrollHeight;
-      },18);
+        const target=aDiv.querySelector('#typeTarget');
+        target.classList.add('typing');
+        const full=d.answer; let i=0;
+        const timer=setInterval(()=>{
+          if(i>=full.length){clearInterval(timer);target.classList.remove('typing');return;}
+          const chunk=full.slice(i,i+3); target.textContent+=chunk; i+=3;
+          history.scrollTop=history.scrollHeight;
+        },18);
+      }
+
+      if (d.error) history.appendChild(aDiv);
+
+    } catch(e) {
+      thinkDiv.remove();
+      const err=document.createElement('div');err.className='chat-a';
+      err.innerHTML='<div class="chat-a-label">ERROR</div><div class="chat-a-text" style="color:var(--red)">Server error — is Ollama running?</div>';
+      history.appendChild(err);
     }
-
-    if (!d.error) { /* already appended above */ }
-    else history.appendChild(aDiv);
-
-  } catch(e) {
-    thinkDiv.remove();
-    const err=document.createElement('div');err.className='chat-a';
-    err.innerHTML='<div class="chat-a-label">ERROR</div><div class="chat-a-text" style="color:var(--red)">Server error — is the backend running?</div>';
-    history.appendChild(err);
   }
 
   document.getElementById('ragQuestion').value='';
@@ -853,6 +1005,7 @@ function toggleCtx(i) {
 resize(); drawFrame();
 loadItems().then(loadHNSW);
 checkOllamaStatus();
+initGeminiKey();
 </script>
 </body>
 </html>

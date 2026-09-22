@@ -1075,6 +1075,14 @@ int main() {
         res.set_content(ss.str(), "application/json");
     });
 
+    svr.Get("/config", [&](const httplib::Request&, httplib::Response& res) {
+        cors(res);
+        const char* key = std::getenv("GEMINI_API_KEY");
+        std::ostringstream ss;
+        ss << "{\"geminiKey\":" << jS(key ? key : "") << "}";
+        res.set_content(ss.str(), "application/json");
+    });
+
     // Serve index.html
     svr.Get("/", [](const httplib::Request&, httplib::Response& res) {
         std::ifstream f("index.html");
