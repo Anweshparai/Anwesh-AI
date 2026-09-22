@@ -899,9 +899,10 @@ Instructions:
 3. Be friendly, accurate, and articulate.`;
 
       // 3. Call Google Gemini API (with automatic fallback to available models)
-      const candidateModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash-latest'];
+      const candidateModels = ['gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite'];
       let gData = null;
       let usedModel = candidateModels[0];
+      let lastError = null;
 
       for (const m of candidateModels) {
         try {
@@ -913,17 +914,26 @@ Instructions:
             })
           });
           const json = await res.json();
-          if (json.error && json.error.message && (json.error.message.includes('not found') || json.error.message.includes('not supported'))) {
+          if (json.error) {
+            lastError = json.error.message || ('Error calling ' + m);
+            // If API key itself is invalid or blocked, stop
+            if (json.error.message && (json.error.message.includes('API key') || json.error.status === 'PERMISSION_DENIED')) {
+              gData = json;
+              break;
+            }
+            // Model not available or deprecated -> try next model in candidate list
             continue;
           }
           gData = json;
           usedModel = m;
           break;
-        } catch(e) {}
+        } catch(e) {
+          lastError = e.message;
+        }
       }
 
       if (!gData) {
-        throw new Error("Could not find an available Gemini model. Please verify your API key permissions.");
+        throw new Error(lastError || "Could not find an available Gemini model. Please verify your API key.");
       }
 
       thinkDiv.remove();
